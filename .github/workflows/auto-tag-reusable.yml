@@ -1,0 +1,125 @@
+name: Auto Tag (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      is_public_release:
+        description: 'Whether this is a public release (increments PUBLIC version)'
+        required: false
+        default: false
+        type: boolean
+      runs_on:
+        description: 'Runner to use (ubuntu-latest or self-hosted)'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+    outputs:
+      new_tag:
+        description: 'The newly created tag'
+        value: ${{ jobs.auto-tag.outputs.new_tag }}
+      tag_created:
+        description: 'Whether a tag was created'
+        value: ${{ jobs.auto-tag.outputs.tag_created }}
+      is_public:
+        description: 'Whether this was a public release'
+        value: ${{ jobs.auto-tag.outputs.is_public }}
+
+jobs:
+  auto-tag:
+    name: Generate Version Tag
+    runs-on: ${{ inputs.runs_on }}
+    outputs:
+      new_tag: ${{ steps.create-tag.outputs.new_tag }}
+      tag_created: ${{ steps.create-tag.outputs.tag_created }}
+      is_public: ${{ steps.create-tag.outputs.is_public }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Generate and push tag
+        id: create-tag
+        env:
+          IS_PUBLIC_INPUT: ${{ inputs.is_public_release }}
+        run: |
+          set -e
+
+          # Fetch all tags
+          git fetch --all --tags
+
+          # Get today's date in YYMMDD format
+          TODAY=$(date +%y%m%d)
+
+          # Find latest tag matching YYMMDD.PUBLIC.BUILD pattern
+          LATEST_TAG=$(git tag -l '[0-9][0-9][0-9][0-9][0-9][0-9].[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            # No existing tags, start fresh
+            PUBLIC=0
+            BUILD=0
+          else
+            # Parse existing tag: YYMMDD.PUBLIC.BUILD
+            PUBLIC=$(echo "$LATEST_TAG" | cut -d. -f2)
+            BUILD=$(echo "$LATEST_TAG" | cut -d. -f3)
+          fi
+
+          echo "Latest tag: $LATEST_TAG (PUBLIC=$PUBLIC, BUILD=$BUILD)"
+
+          # Check if this is a public release
+          IS_PUBLIC_RELEASE="$IS_PUBLIC_INPUT"
+          if [ "$IS_PUBLIC_RELEASE" != "true" ]; then
+            IS_PUBLIC_RELEASE="false"
+          fi
+
+          echo "Public release: $IS_PUBLIC_RELEASE"
+
+          # Calculate new version
+          if [ "$IS_PUBLIC_RELEASE" = "true" ]; then
+            # Increment PUBLIC, reset BUILD to 1
+            PUBLIC=$((PUBLIC + 1))
+            BUILD=1
+          else
+            # Increment BUILD only
+            BUILD=$((BUILD + 1))
+          fi
+
+          NEW_TAG="${TODAY}.${PUBLIC}.${BUILD}"
+          echo "New tag: $NEW_TAG (PUBLIC=$PUBLIC, BUILD=$BUILD, is_public=$IS_PUBLIC_RELEASE)"
+
+          # Check if tag already exists (edge case)
+          if git tag | grep -q "^${NEW_TAG}$"; then
+            echo "Tag $NEW_TAG already exists. Skipping."
+            echo "tag_created=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Create and push tag
+          git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
+          git push origin "$NEW_TAG"
+
+          echo "::notice::Created tag: $NEW_TAG"
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "tag_created=true" >> $GITHUB_OUTPUT
+          echo "is_public=$IS_PUBLIC_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.create-tag.outputs.tag_created == 'true' && steps.create-tag.outputs.is_public == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.create-tag.outputs.new_tag }}
+          name: Release ${{ steps.create-tag.outputs.new_tag }}
+          body: |
+            ## Release ${{ steps.create-tag.outputs.new_tag }}
+
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
