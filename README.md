@@ -36,7 +36,7 @@ jobs:
     outputs:
       is_public: ${{ steps.check.outputs.is_public }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
       - id: check
