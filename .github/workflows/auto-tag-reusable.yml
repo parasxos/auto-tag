@@ -111,7 +111,7 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.create-tag.outputs.tag_created == 'true' && steps.create-tag.outputs.is_public == 'true'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.create-tag.outputs.new_tag }}
           name: Release ${{ steps.create-tag.outputs.new_tag }}
