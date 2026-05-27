@@ -28,6 +28,9 @@ jobs:
   auto-tag:
     name: Generate Version Tag
     runs-on: ${{ inputs.runs_on }}
+    concurrency:
+      group: auto-tag-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
     outputs:
       new_tag: ${{ steps.create-tag.outputs.new_tag }}
       tag_created: ${{ steps.create-tag.outputs.tag_created }}
